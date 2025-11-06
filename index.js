@@ -3,6 +3,7 @@ import axios from "axios";
 import { middleware, Client } from "@line/bot-sdk";
 
 const app = express();
+app.use(express.json());
 
 const config = {
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
