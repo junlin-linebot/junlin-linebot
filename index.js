@@ -31,12 +31,20 @@ async function handleEvent(event) {
   let replyText = "目前系統有點忙，請稍後再試！🙏 (The bot is busy now)";
 
   try {
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-3.5-turbo",
-        messages: [{ role: "user", content: userMessage }],
-      },
+   const response = await axios.post(
+  "https://api.openai.com/v1/chat/completions",
+  JSON.stringify({
+    model: "gpt-3.5-turbo",
+    messages: [{ role: "user", content: userMessage }],
+  }),
+  {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+  }
+);
+
       {
         headers: {
           "Content-Type": "application/json",
