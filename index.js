@@ -28,23 +28,15 @@ async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
 
   const userMessage = event.message.text;
-  let replyText = "目前系統有點忙，請稍後再試！🙏 (The bot is busy now)";
+  let replyText = "目前系統有點忙，請稍後再試 🙏";
 
   try {
-   const response = await axios.post(
-  "https://api.openai.com/v1/chat/completions",
-  JSON.stringify({
-    model: "gpt-3.5-turbo",
-    messages: [{ role: "user", content: userMessage }],
-  }),
-  {
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-  }
-);
-
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages: [{ role: "user", content: userMessage }],
+      }),
       {
         headers: {
           "Content-Type": "application/json",
@@ -52,7 +44,6 @@ async function handleEvent(event) {
         },
       }
     );
-
     replyText = response.data.choices?.[0]?.message?.content?.trim() || replyText;
   } catch (err) {
     console.error("GPT error:", err.response?.data || err.message);
