@@ -1,56 +1,74 @@
 import express from "express";
 import { middleware, Client } from "@line/bot-sdk";
-import openai from "openai"; // 引入 OpenAI SDK
+import OpenAI from "openai";
 
-// 設置 LINE bot 的 Channel access token 和 Channel secret
+// LINE 設定
 const config = {
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
   channelSecret: process.env.LINE_SECRET,
 };
 
-// 初始化 Express 應用程式
-const app = express();
-
-// 必須放在任何 body parser 之前，來處理 LINE 發來的 webhook 請求
-app.post("/webhook", middleware(config), (req, res) => {
-  Promise
-    .all(req.body.events.map(handleEvent)) // 處理每一個事件
-    .then((result) => res.json(result))  // 回應處理結果
-    .catch((err) => {
-      console.error(err);  // 若發生錯誤，記錄錯誤
-      res.status(500).end(); // 回應 500 錯誤
-    });
-});
-
+// 初始化 LINE 客戶端
 const client = new Client(config);
 
-// 處理收到的事件（訊息）
+// 初始化 OpenAI 客戶端（這步很重要）
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+const app = express();
+
+// 處理 LINE webhook
+app.post("/webhook", middleware(config), async (req, res) => {
+  try {
+    const results = await Promise.all(req.body.events.map(handleEvent));
+    res.json(results);
+  } catch (err) {
+    console.error("Webhook Error:", err);
+    res.status(500).end();
+  }
+});
+
+// 處理收到的訊息事件
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") {
-    return Promise.resolve(null);  // 只處理文字訊息
+    return Promise.resolve(null);
   }
 
-  const userMessage = event.message.text;  // 取得用戶發送的訊息
+  const userMessage = event.message.text;
 
-  // 使用 OpenAI GPT 回應訊息
-  const gptResponse = await getGPTResponse(userMessage);
+  try {
+    // 呼叫 GPT 生成回覆
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "You are a helpful assistant for a used car salesperson." },
+        { role: "user", content: userMessage },
+      ],
+    });
 
-  // 回覆 GPT 生成的回應給用戶
-  const echo = { type: "text", text: gptResponse };
-  return client.replyMessage(event.replyToken, echo);
+    const replyText = completion.choices[0].message.content.trim();
+
+    // 回傳訊息給使用者
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: replyText,
+    });
+  } catch (error) {
+    console.error("GPT Error:", error);
+
+    // 若 GPT 出錯，回覆一個簡短提示
+    await client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "目前伺服器忙碌中，請稍後再試 🙏",
+    });
+  }
 }
 
-// 呼叫 OpenAI API，根據用戶訊息生成回應
-async function getGPTResponse(userMessage) {
-  const response = await openai.completions.create({
-    model: "text-davinci-003", // 使用 GPT-3 的 Davinci 模型
-    prompt: userMessage,  // 用戶的訊息作為提示詞
-    max_tokens: 150,  // 設定 GPT 回應的最大長度
-  });
-
-  return response.choices[0].text.trim();  // 擷取 GPT 回應並去除多餘空白
-}
+app.get("/", (req, res) => {
+  res.send("LINE Bot server is running 🚗");
+});
 
 app.listen(3000, () => {
-  console.log("LINE bot server is running on port 3000");
+  console.log("Server running on port 3000");
 });
