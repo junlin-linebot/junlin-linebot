@@ -2,22 +2,25 @@ import express from "express";
 import { middleware, Client } from "@line/bot-sdk";
 import OpenAI from "openai";
 
-// === LINE config ===
+// === LINE 設定 ===
 const config = {
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
   channelSecret: process.env.LINE_SECRET,
 };
 
-const app = express();
+// === 初始化 LINE 客戶端 ===
 const client = new Client(config);
 
-// === OpenAI config (新版金鑰相容) ===
+// === 初始化 OpenAI 客戶端（新版金鑰需加入 project） ===
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  organization: process.env.OPENAI_ORG, // 新增這行！對應新版 project key
+  apiKey: process.env.OPENAI_API_KEY,      // 你的 sk-proj- 金鑰
+  project: process.env.OPENAI_PROJECT,     // 你的 proj_ 開頭的 Project ID
 });
 
-// === webhook ===
+// === 建立 Express 伺服器 ===
+const app = express();
+
+// === 處理 LINE Webhook ===
 app.post("/webhook", middleware(config), async (req, res) => {
   try {
     const results = await Promise.all(req.body.events.map(handleEvent));
@@ -28,68 +31,66 @@ app.post("/webhook", middleware(config), async (req, res) => {
   }
 });
 
-// === event handler ===
+// === 處理每個事件 ===
 async function handleEvent(event) {
+  // 只處理文字訊息
   if (event.type !== "message" || event.message.type !== "text") {
     return Promise.resolve(null);
   }
 
-  const text = event.message.text.trim();
+  const userMessage = event.message.text.trim();
 
   // 測試指令
-  if (text.toLowerCase() === "/ping") {
-    return client.replyMessage(event.replyToken, { type: "text", text: "pong" });
+  if (userMessage.toLowerCase() === "/ping") {
+    return client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "pong ✅",
+    });
   }
 
   try {
-    // 呼叫 GPT
+    // 呼叫 GPT 產生回覆
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // 穩定又便宜的模型
+      model: "gpt-4o-mini", // 使用穩定且快速的模型
       messages: [
         {
           role: "system",
           content:
-            "You are a helpful assistant for a beginner used car salesperson in Taiwan. Keep replies practical and clear.",
+            "You are a helpful assistant for a beginner used car salesperson in Taiwan. Keep replies friendly and clear.",
         },
-        { role: "user", content: text },
+        { role: "user", content: userMessage },
       ],
-      temperature: 0.7,
     });
 
-    const replyText =
-      completion?.choices?.[0]?.message?.content?.trim() ||
-      "（暫時無法產生回覆，請稍後再試 🙏）";
+    const replyText = completion.choices[0].message.content.trim();
 
-    return client.replyMessage(event.replyToken, { type: "text", text: replyText });
-  } catch (err) {
-    const status = err?.status || err?.response?.status;
-    const data = err?.response?.data;
-    console.error("GPT Error:", { status, message: err?.message, data });
-
-    const msg =
-      status === 429
-        ? "系統忙碌（429），等一下再試或換一組金鑰 🙏"
-        : status === 401
-        ? "金鑰驗證失敗，請確認 OPENAI_API_KEY 和 OPENAI_ORG 設定正確 ⚙️"
-        : "目前伺服器忙碌中，請稍後再試 🙏";
-
-    return client.replyMessage(event.replyToken, { type: "text", text: msg });
+    // 回傳給 LINE 使用者
+    return client.replyMessage(event.replyToken, {
+      type: "text",
+      text: replyText,
+    });
+  } catch (error) {
+    console.error("GPT Error:", error);
+    return client.replyMessage(event.replyToken, {
+      type: "text",
+      text: "目前伺服器忙碌中，請稍後再試 🙏",
+    });
   }
 }
 
-// === health check routes ===
+// === 健康檢查 (Health check) ===
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
     webhook: true,
     openaiKey: !!process.env.OPENAI_API_KEY,
-    organization: !!process.env.OPENAI_ORG,
+    project: !!process.env.OPENAI_PROJECT,
   });
 });
 
 app.get("/", (req, res) => {
-  res.send("✅ LINE Bot server is running with new OpenAI key support.");
+  res.send("🚗 LINE Bot server is running with new OpenAI project support.");
 });
 
-// Vercel 專用：使用 default export
+// === 給 Vercel 使用 ===
 export default app;
