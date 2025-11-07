@@ -11,9 +11,11 @@ const config = {
 const app = express();
 const client = new Client(config);
 
-// === OpenAI client (may be absent) ===
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
-const openai = OPENAI_KEY ? new OpenAI({ apiKey: OPENAI_KEY }) : null;
+// === OpenAI config (新版金鑰相容) ===
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  organization: process.env.OPENAI_ORG, // 新增這行！對應新版 project key
+});
 
 // === webhook ===
 app.post("/webhook", middleware(config), async (req, res) => {
@@ -28,75 +30,66 @@ app.post("/webhook", middleware(config), async (req, res) => {
 
 // === event handler ===
 async function handleEvent(event) {
-  // 只處理文字訊息
   if (event.type !== "message" || event.message.type !== "text") {
     return Promise.resolve(null);
   }
 
-  const text = (event.message.text || "").trim();
+  const text = event.message.text.trim();
 
-  // 1) 健康檢查指令：/ping -> pong
+  // 測試指令
   if (text.toLowerCase() === "/ping") {
     return client.replyMessage(event.replyToken, { type: "text", text: "pong" });
   }
 
-  // 2) 沒有 OpenAI 金鑰 → 直接回覆提示（並在 Logs 記錄）
-  if (!openai) {
-    console.error("MISSING_OPENAI_KEY: process.env.OPENAI_API_KEY is undefined");
-    return client.replyMessage(event.replyToken, {
-      type: "text",
-      text: "目前尚未設定 OpenAI 金鑰，請稍後再試 🙏",
-    });
-  }
-
   try {
-    // 3) 呼叫 GPT（使用建議且穩定的模型）
+    // 呼叫 GPT
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o-mini", // 穩定又便宜的模型
       messages: [
         {
           role: "system",
           content:
-            "You are a helpful assistant for a beginner used-car salesperson in Taiwan. Keep replies concise and practical.",
+            "You are a helpful assistant for a beginner used car salesperson in Taiwan. Keep replies practical and clear.",
         },
         { role: "user", content: text },
       ],
       temperature: 0.7,
     });
 
-    const reply =
+    const replyText =
       completion?.choices?.[0]?.message?.content?.trim() ||
-      "（暫時無法產生回覆，請再試一次 🙏）";
+      "（暫時無法產生回覆，請稍後再試 🙏）";
 
-    return client.replyMessage(event.replyToken, { type: "text", text: reply });
+    return client.replyMessage(event.replyToken, { type: "text", text: replyText });
   } catch (err) {
-    // 4) 詳細錯誤輸出到 Logs，協助定位（不會暴露金鑰）
     const status = err?.status || err?.response?.status;
     const data = err?.response?.data;
     console.error("GPT Error:", { status, message: err?.message, data });
 
-    // 429/限流給出友善文字，其餘通用提示
     const msg =
       status === 429
-        ? "系統忙碌（429），等一下再試或改用新金鑰 🙏"
+        ? "系統忙碌（429），等一下再試或換一組金鑰 🙏"
+        : status === 401
+        ? "金鑰驗證失敗，請確認 OPENAI_API_KEY 和 OPENAI_ORG 設定正確 ⚙️"
         : "目前伺服器忙碌中，請稍後再試 🙏";
+
     return client.replyMessage(event.replyToken, { type: "text", text: msg });
   }
 }
 
-// === 健康檢查 HTTP 路由 ===
+// === health check routes ===
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
     webhook: true,
-    openaiKey: !!OPENAI_KEY, // 只回 true/false，不顯示金鑰
+    openaiKey: !!process.env.OPENAI_API_KEY,
+    organization: !!process.env.OPENAI_ORG,
   });
 });
 
-// 根路徑：避免瀏覽器看到 Cannot GET /
 app.get("/", (req, res) => {
-  res.send("✅ LINE Bot is running. Use /health for status.");
+  res.send("✅ LINE Bot server is running with new OpenAI key support.");
 });
 
-// 在 Vercel 建議用 default export，不需 app.listen
+// Vercel 專用：使用 default export
 export default app;
